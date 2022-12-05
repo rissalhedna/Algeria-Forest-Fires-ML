@@ -3,7 +3,7 @@ title: <center>Algerian Forest Fire Analysis</center><br/>
 output: html_notebook
 author:
   - Mohamed Rissal Hedna 201906233
-  - Younes Djemmal 201906xxx
+  - Younes Djemmal 201906303
 ---
 ## Overview
 ### Background
@@ -34,7 +34,7 @@ The Dataset we will use to train and test our models consists of 244 observation
 11. Fire Weather Index (FWI) Index: 0 to 31.1
 12. Classes: two classes, namely "fire" and "not fire"
 
-## Exploratory Analysis
+## Exploratory Data Analysis
 
 We first start off by importing the necessary libraries for our analysis.
 
@@ -149,7 +149,6 @@ st(df)
 ```
 
 ```{r}
-
 df <- df[-c(3)]
 
 df_scaled = df
@@ -210,7 +209,6 @@ The *varImp* function returns a measure of importance out of 100 for each of the
 
 ```{r}
 # prepare training scheme
-set.seed(7)
 df_scaled$Classes = as.factor(df_scaled$Classes)
 
 control <- trainControl(method="repeatedcv", number=10, repeats=3)
@@ -224,12 +222,14 @@ plot(importanceLDA)
 ```
 We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model.
 
+
 ### Logistic Regression
 #### Splitting the dataset
 
 We first start by performing Logistic Regression on our dataset. We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice.
 
 ```{r}
+set.seed(6)
 split <- sample.split(df_scaled, SplitRatio=0.8)
 
 train_set <- subset(df_scaled, split == "TRUE")
@@ -258,9 +258,11 @@ predict
 predict <- ifelse(predict >0.5,1,0)
 predict
 ```
+
 ```{r}
 table(test_set$Classes,predict)
 ```
+
 ```{r}
 misclassifications <- mean(predict != test_set$Classes)
 
@@ -275,7 +277,53 @@ ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
 auc
-plot(ROCPer)
+plot(ROCPer, colorize = TRUE)
 ```
 
 [INTERPRETATION]
+
+
+
+### LDA
+
+#### Splitting the dataset
+Since LDA assumes that each input variable has the same variance, we will use the standardized data-frame in the train test splits. Each variable in the standardized data-frame has mean of 0 and variance of 1.
+
+The train test ratio chosen is 0.8:0.2 leaving 52 observations as unseen data for testing. 
+```{r}
+set.seed(6)
+split <- sample.split(df_scaled, SplitRatio=0.8)
+
+train_set <- subset(df_scaled, split == "TRUE")
+test_set <- subset(df_scaled, split=="FALSE")
+dim(train_set)
+dim(test_set)
+```
+
+#### Training the model
+We will train our model on the significant features selected in the feature selection phase. The data is standardized of course. 
+```{r}
+lda_model = lda (Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set)
+lda_model
+```
+Interpretation on the coefficients: 
+
+#### Testing the model
+After getting our predictions, we will use the confusion matrix function from the caret library that computes a set of performance matrices including f1-score, recall and precision. Other matrices computed include: sensitivity, specificity, prevalence etc. The official documentation for this function and the formulas for all matrices are found in this link: https://rdrr.io/cran/caret/man/confusionMatrix.html. We will only be interested in the f1-score, recall, precision, accuracy and balanced accuracy.
+
+As we can see below, our the number of false positives is 0, and the number of false negatives is 2. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 96% and an accuracy of 96% as well.  
+
+```{r}
+preds = predict(lda_model,test_set, type="response")
+confusionMatrix(preds$class, test_set$Classes,
+                mode = "everything",
+                positive="1")
+```
+####Potting the ROC curve
+
+```{r}
+pred <- prediction(preds$posterior[,2], test_set$Classes) 
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+```
+Interpreation: 
