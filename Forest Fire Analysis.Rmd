@@ -58,38 +58,56 @@ Before starting our analysis we separated the tables into two distinct files acc
 
 
 ```{r, echo=FALSE}
-df_0 <- read.csv("./Algerian_forest_fires_dataset_Bejaia.csv")
-df_1 <- read.csv("./Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv")
+df_b <- read.csv("./Algerian_forest_fires_dataset_Bejaia.csv")
+df_s <- read.csv("./Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv")
 ```
 
 ### Cleaning and processing the data
 
+We first check the existence of null values in the Dataset, none were found.
 
 
 ```{r}
-df_0[["Region"]] = 0
-df_1[["Region"]] = 1
-df_1$DC <- as.double(df_1$DC)
-df_1$FWI <- as.double(df_1$FWI)
-df = full_join(df_0, df_1)
+colSums(is.na(df_b))
+colSums(is.na(df_s))
+```
+
+We then process to add a column in both datasets to indicate the region(Wilaya) in each table. We chose the following encoding:
+
+1. Bejaia = 0
+2. Sidi-Bel Abbes = 1
+
+
+```{r}
+df_b[["Region"]] = 0
+df_s[["Region"]] = 1
+```
+
+After that, we proceed to merge both our datasets into one single dataframe using *full_join()*, this will allow us to easily explore and analyze the data.
+
+```{r}
+df_s$DC <- as.double(df_1$DC)
+df_s$FWI <- as.double(df_1$FWI)
+
+df = full_join(df_s, df_b)
+
 dim(df)
 str(df)
-head(df_0)
 ```
 
 ```{r}
 summary(df)
 unique(df$year)
-df = subset(df, select = -c(year) )
+unique(df$month)
 ```
-##Data cleaning
+
 
 ```{r}
-colnames(df)
-str(df)
-dim(df)
-sum(is.null(df))
+colSums(is.na(df))
 ```
+
+
+
 ```{r}
 unique(df$Classes)
 ```
