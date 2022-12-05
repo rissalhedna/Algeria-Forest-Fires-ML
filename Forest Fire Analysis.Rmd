@@ -47,6 +47,14 @@ library(plyr)
 library(ggplot2)
 library(ggcorrplot)
 library(plotly)
+library(tidyverse)
+#Feature selection libraries
+library(mlbench)
+library(caret)
+#For Logistic regression
+library(caTools)
+#For ROC curve
+library(ROCR)
 ```
 
 
@@ -86,8 +94,8 @@ df_s[["Region"]] = 1
 After that, we proceed to merge both our datasets into one single dataframe using *full_join()*, this will allow us to easily explore and analyze the data.
 
 ```{r}
-df_s$DC <- as.double(df_1$DC)
-df_s$FWI <- as.double(df_1$FWI)
+df_s$DC <- as.double(df_s$DC)
+df_s$FWI <- as.double(df_s$FWI)
 
 df = full_join(df_s, df_b)
 
@@ -101,27 +109,33 @@ unique(df$year)
 unique(df$month)
 ```
 
+We check again for any *NA* values that might have been introduced into the dataset by merging the data from both tables, we found out there was one row that contained NA value in DC and FWI. We delete that row since it will not affect our overall dataset.
 
 ```{r}
 colSums(is.na(df))
+df = df %>% drop_na(DC)
+dim(df)
 ```
 
+We now proceed to display the different range of values some categorical variables might contain, mainly the Classes and the Region columns.
 
 
 ```{r}
 unique(df$Classes)
+unique(df$Region)
 ```
+
+We find that the Classes column has values that contain unneeded space characters, we proceed to trim those spaces.
+
 ```{r}
 df$Classes <- trimws(df$Classes, which = c("both"))
-unique(df$Classes)
 ```
-```{r}
-df <- subset(df, df$Classes != "")
-```
+
+
 
 ```{r}
 unique(df$Classes)
-dim(df)
+df = df %>% drop_na(Classes)
 ```
 
 ```{r}
@@ -135,13 +149,45 @@ st(df)
 ```
 
 ```{r}
-df[-c(1,2,13,14)] <- scale(df[-c(1,2,13,14)])
-st(df)
+
+df <- df[-c(3)]
+
+df_scaled = df
+df_scaled[-c(1,2,13,14)] <- scale(df[-c(1,2,13,14)])
+st(df_scaled)
+
 ```
 
+### Visualizing the data
+
+We have ended up with a clean and scaled dataframe named *df_scaled*, which we will use to visualize and further explore our data.
+
+Our first instinct is to compare the two regions together in terms of number of fires, and average temperature. 
+
 ```{r}
-corr_mat <- round(cor(df),2)
-p_mat <- cor_pmat(df)
+aggregate(df$Classes ~ df$Region, FUN = sum)
+aggregate(df$Temperature ~ df$Region, FUN = mean)
+```
+We used the unscaled dataset to plot the real life values of the temperatures.
+
+```{r}
+df %>%
+  group_by(Region) %>%
+  summarise(Region = Region, Number_of_fires = sum(Classes), Temperature = mean(Temperature)) %>%
+  ggplot(aes(x=Region, y=Number_of_fires, fill = Temperature))+
+  geom_col(position='dodge')
+```
+
+We can see that the the Sidi-Bel Abbes region has in total a greater number of fires and a higher average temperature throughout the summer of 2012.
+
+## Model Building
+### Correlation Matrix
+
+The previous results push us to suspect a positive relationship between the temperature and the likelihood of having a fire. However, we need to investigate all the other variables, which is why we will plot a correlation matrix of the features in the dataset.
+
+```{r}
+corr_mat <- round(cor(df_scaled),2)
+p_mat <- cor_pmat(df_scaled)
  
 corr_mat <- ggcorrplot(
   corr_mat, 
@@ -152,3 +198,84 @@ corr_mat <- ggcorrplot(
  
 ggplotly(corr_mat)
 ```
+
+### Feature Selection
+
+We performed feature selection using the Caret package to determine which features are the most important and which are the least. 
+
+In this case, we opted for Linear Discriminant Analysis with Stepwise Feature Selection by specifying *stepLDA* as our method.
+
+The *varImp* function returns a measure of importance out of 100 for each of the features. According to the official [Caret documentation](https://topepo.github.io/caret/variable-importance.html), the importance metric is calculated by conducting a ROC curve analysis on each predictor; a series of cutoffs is applied to the predictor data to predict the class. The AUC is then computed and is used as a measure of variable importance. 
+
+
+```{r}
+# prepare training scheme
+set.seed(7)
+df_scaled$Classes = as.factor(df_scaled$Classes)
+
+control <- trainControl(method="repeatedcv", number=10, repeats=3)
+# train the model
+modelLDA <- train(Classes~., data=df_scaled, method="stepLDA", trControl=control)
+modelQDA <- train(Classes~., data=df_scaled, method="stepQDA", trControl=control)
+
+importanceLDA <- varImp(modelLDA, scale=FALSE)
+
+plot(importanceLDA)
+```
+We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model.
+
+### Logistic Regression
+#### Splitting the dataset
+
+We first start by performing Logistic Regression on our dataset. We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice.
+
+```{r}
+split <- sample.split(df_scaled, SplitRatio=0.8)
+
+train_set <- subset(df_scaled, split == "TRUE")
+test_set <- subset(df_scaled, split=="FALSE")
+head(train_set)
+```
+#### Training the model
+
+We create our model with the features that were the most important during our feature selection step. Then, we fit the model to our training data.
+
+After that, we test our model on the test set and use a threshold of 0.5 to set our predictions. This will result in having only one False Positive and one False Negative prediction. By the end, our model has reached an accuracy of 94% on our test data.
+
+```{r}
+logistic_model <- glm(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, family="binomial")
+summary(logistic_model)
+```
+
+#### Testing the model
+
+```{r}
+predict <- predict(logistic_model, test_set, type="response")
+predict
+```
+
+```{r}
+predict <- ifelse(predict >0.5,1,0)
+predict
+```
+```{r}
+table(test_set$Classes,predict)
+```
+```{r}
+misclassifications <- mean(predict != test_set$Classes)
+
+print(paste('Accuracy =',1-misclassifications))
+```
+
+#### Plotting the ROC curve
+
+```{r}
+ROCPred <- prediction(predict,test_set$Classes)
+ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
+auc <- performance(ROCPred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+plot(ROCPer)
+```
+
+[INTERPRETATION]
