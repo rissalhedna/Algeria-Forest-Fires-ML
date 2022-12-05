@@ -1,0 +1,136 @@
+---
+title: <center>Algerian Forest Fire Analysis</center><br/>
+output: html_notebook
+author:
+  - Mohamed Rissal Hedna 201906233
+  - Younes Djemmal 201906xxx
+---
+## Overview
+### Background
+
+During the summer of 2012, [wild fires](https://www.un-spider.org/news-and-events/news/algeria-maps-summer-2012-wildfires-available) ravaged throughout the Algerian territory covering most of the northern part, especially the coastal cities. This disaster was due to the higher than average temperatures which reached as high as 50 degrees Celcius.
+
+### Objectives 
+
+One important measure against the reproduction of such disasters is the ability to predict their occurrence. Moreover, in this project, we will attempt to predict these forest fires based on multiple features related to weather indices.
+
+### Dataset Description
+
+The Dataset we will use to train and test our models consists of 244 observations on two Algerian Wilayas (cities): Sidi-Bel Abbes and Bejaia. The observations have been gathered throughout the duration of 4 months from June to September 2012 for both cities.
+
+**The Dataset contains the following variables:**
+
+1. Date: (DD/MM/YYYY) Day, month ('june' to 'september'), year (2012)
+2. Temp: temperature noon (temperature max) in Celsius degrees: 22 to 42
+3. RH: Relative Humidity in %: 21 to 90
+4. Ws: Wind speed in km/h: 6 to 29
+5. Rain: total day in mm: 0 to 16.8<br>
+**FWI Components (check this [LINK](https://cwfis.cfs.nrcan.gc.ca/background/summary/fwi) for more information)**
+6. Fine Fuel Moisture Code (FFMC) index from the FWI system: 28.6 to 92.5
+7. Duff Moisture Code (DMC) index from the FWI system: 1.1 to 65.9
+8. Drought Code (DC) index from the FWI system: 7 to 220.4
+9. Initial Spread Index (ISI) index from the FWI system: 0 to 18.5
+10. Build-up Index (BUI) index from the FWI system: 1.1 to 68
+11. Fire Weather Index (FWI) Index: 0 to 31.1
+12. Classes: two classes, namely "fire" and "not fire"
+
+## Exploratory Analysis
+
+We first start off by importing the necessary libraries for our analysis.
+
+[INSERT DESCRIPTION OF EACH LIBRARY]
+
+```{r, include=FALSE}
+library(dplyr)
+library(vtable)
+library(plyr)
+library(ggplot2)
+library(ggcorrplot)
+library(plotly)
+```
+
+
+### Importing the data 
+
+The Dataset provided to us was in the form of a .csv file that contained two tables, one table for the observations belonging to the Sidi-Bel Abbes region, and the other for Bejaia. 
+
+Before starting our analysis we separated the tables into two distinct files according to the region. We named both files *Algerian_forest_fires_dataset_Bejaia.csv* and *Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv* for Bejaia and Sidi-Bel Abbes respectively.
+
+
+```{r, echo=FALSE}
+df_0 <- read.csv("./Algerian_forest_fires_dataset_Bejaia.csv")
+df_1 <- read.csv("./Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv")
+```
+
+### Cleaning and processing the data
+
+
+
+```{r}
+df_0[["Region"]] = 0
+df_1[["Region"]] = 1
+df_1$DC <- as.double(df_1$DC)
+df_1$FWI <- as.double(df_1$FWI)
+df = full_join(df_0, df_1)
+dim(df)
+str(df)
+head(df_0)
+```
+
+```{r}
+summary(df)
+unique(df$year)
+df = subset(df, select = -c(year) )
+```
+##Data cleaning
+
+```{r}
+colnames(df)
+str(df)
+dim(df)
+sum(is.null(df))
+```
+```{r}
+unique(df$Classes)
+```
+```{r}
+df$Classes <- trimws(df$Classes, which = c("both"))
+unique(df$Classes)
+```
+```{r}
+df <- subset(df, df$Classes != "")
+```
+
+```{r}
+unique(df$Classes)
+dim(df)
+```
+
+```{r}
+df$Classes <- mapvalues(df$Classes, from=c("not fire","fire"), to=c(0,1))
+```
+
+```{r}
+unique(df$Classes)
+df$Classes <- as.numeric(df$Classes)
+st(df)
+```
+
+```{r}
+df[-c(1,2,13,14)] <- scale(df[-c(1,2,13,14)])
+st(df)
+```
+
+```{r}
+corr_mat <- round(cor(df),2)
+p_mat <- cor_pmat(df)
+ 
+corr_mat <- ggcorrplot(
+  corr_mat, 
+  hc.order = FALSE, 
+  type = "upper",
+  outline.col = "white",
+)
+ 
+ggplotly(corr_mat)
+```
