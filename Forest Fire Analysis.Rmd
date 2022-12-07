@@ -41,6 +41,8 @@ We first start off by importing the necessary libraries for our analysis.
 [INSERT DESCRIPTION OF EACH LIBRARY]
 
 ```{r, include=FALSE}
+
+library(MASS)
 library(dplyr)
 library(vtable)
 library(plyr)
@@ -179,7 +181,7 @@ df %>%
 
 We can see that the the Sidi-Bel Abbes region has in total a greater number of fires and a higher average temperature throughout the summer of 2012.
 
-## Model Building
+## Further Analysis
 ### Correlation Matrix
 
 The previous results push us to suspect a positive relationship between the temperature and the likelihood of having a fire. However, we need to investigate all the other variables, which is why we will plot a correlation matrix of the features in the dataset.
@@ -214,7 +216,6 @@ df_scaled$Classes = as.factor(df_scaled$Classes)
 control <- trainControl(method="repeatedcv", number=10, repeats=3)
 # train the model
 modelLDA <- train(Classes~., data=df_scaled, method="stepLDA", trControl=control)
-modelQDA <- train(Classes~., data=df_scaled, method="stepQDA", trControl=control)
 
 importanceLDA <- varImp(modelLDA, scale=FALSE)
 
@@ -223,56 +224,161 @@ plot(importanceLDA)
 We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model.
 
 
-### Logistic Regression
-#### Splitting the dataset
 
-We first start by performing Logistic Regression on our dataset. We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice.
+## Model Building
+
+For the following models, we will only use the features that were the most significant in our feature selection phase. The selected features are:
+
+1. Temperature
+2. Rain
+3. FFMC
+4. DMC
+5. DC
+6. ISI
+7. BUI
+8. FWI
+9. RH
+
+### Splitting the dataset
+
+We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice. This will leave us with 191 observations in the training set as well as 52 in the test set. Due to the small nature of the dataset at hand we will later apply cross validation in order to further examine the performance of our models and compare them with each other.
+
 
 ```{r}
+
 set.seed(6)
 split <- sample.split(df_scaled, SplitRatio=0.8)
 
 train_set <- subset(df_scaled, split == "TRUE")
 test_set <- subset(df_scaled, split=="FALSE")
-head(train_set)
+
+dim(train_set)
+dim(test_set)
+
 ```
+
+### Logistic Regression
+
+Logistic Regression is considered to be an extension of Linear Regression, in which we predict the qualitative response for an observation. It gives us the probability of a certain observation belonging to a class in binomial classification, but can also be extended to be used for multiple classifications.
+
+
 #### Training the model
 
-We create our model with the features that were the most important during our feature selection step. Then, we fit the model to our training data.
-
-After that, we test our model on the test set and use a threshold of 0.5 to set our predictions. This will result in having only one False Positive and one False Negative prediction. By the end, our model has reached an accuracy of 94% on our test data.
+We first start by fitting our model on the training set. 
 
 ```{r}
 logistic_model <- glm(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, family="binomial")
-summary(logistic_model)
+
+logistic_model
 ```
+
+[Interpretation on the coefficients]
 
 #### Testing the model
 
+Since logistic regression gives us the probability of each observation belonging to the 1 class, we will use a 0.5 threshold to transform that probability into a classification of either 0 or 1.
+
+After getting our predictions, we will use the confusion matrix function from the caret library that computes a set of performance matrices including f1-score, recall and precision. Other matrices computed include: sensitivity, specificity, prevalence etc. The official documentation for this function and the formulas for all matrices are found in this [link.](https://rdrr.io/cran/caret/man/confusionMatrix.html) We will only be interested in the f1-score, recall, precision, accuracy and balanced accuracy.
+
+##### On the train set
+
+
 ```{r}
-predict <- predict(logistic_model, test_set, type="response")
-predict
+preds_logistic <- predict(logistic_model, train_set, type="response")
+
+preds_logistic <- ifelse(preds_logistic >0.5,1,0)
+preds_logistic <- as.factor(preds_logistic)
+
+confusionMatrix(preds_logistic, train_set$Classes,
+                mode = "everything",
+                positive="1")
 ```
 
-```{r}
-predict <- ifelse(predict >0.5,1,0)
-predict
-```
+
+##### On the test set
 
 ```{r}
-table(test_set$Classes,predict)
-```
+preds_logistic <- predict(logistic_model, test_set, type="response")
 
-```{r}
-misclassifications <- mean(predict != test_set$Classes)
+preds_logistic <- ifelse(preds_logistic >0.5,1,0)
+preds_logistic <- as.factor(preds_logistic)
 
-print(paste('Accuracy =',1-misclassifications))
+confusionMatrix(preds_logistic, test_set$Classes,
+                mode = "everything",
+                positive="1")
 ```
 
 #### Plotting the ROC curve
 
+As we plot the ROC curve, we can see that the AUC is equal to 0.986 which is almost a perfect classifier. Due to the small size of the dataset we have at hand we cannot make any conclusions yet until we try out the different other statistical learning methods.
+
 ```{r}
-ROCPred <- prediction(predict,test_set$Classes)
+ROCPred <- prediction(as.numeric(preds_logistic), test_set$Classes)
+
+ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
+auc <- performance(ROCPred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+plot(ROCPer, colorize = TRUE)
+```
+
+#### Observations
+
+Our statistics show the following:
+
+1. On the training set: Accuracy is 100%, F1 score is 100%, with one False Negative and no False Positives.
+2. On the testing set: Accuracy is 98%, F1 score is 98.6%, with one False Negative and no False Positives.
+
+### LDA
+
+Linear Discriminant Analysis is best used when the decision boundary of our given dataset is assumed to be linear. There are two basic assumptions that LDA takes into consideration:
+
+1. There is a common variance across all response classes
+2. The distribution of observations in each response class is normal with a **class-specific** mean, and a **common** variance
+
+
+Since LDA assumes that each input variable has the same variance, we will use the standardized data-frame in the train test splits. Each variable in the standardized data-frame has mean of 0 and variance of 1.
+
+#### Training the model
+
+
+```{r}
+lda_model = lda(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, family="binomial")
+lda_model
+```
+
+
+[Interpretation on the coefficients]
+
+#### Testing the model
+
+##### On the train set
+
+On our trainng data, the model reached an accuracy of 94.2% and an F1 score of 94.4%. 
+
+```{r}
+preds_lda = predict(lda_model,train_set, type="response")
+confusionMatrix(preds_lda$class, train_set$Classes,
+                mode = "everything",
+                positive="1")
+```
+
+##### On the test set
+
+As we can see below, our the number of false positives is 0, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 98.6% and an accuracy of 98%.
+
+```{r}
+preds_lda = predict(lda_model,test_set, type="response")
+confusionMatrix(preds_lda$class, test_set$Classes,
+                mode = "everything",
+                positive="1")
+```
+#### Potting the ROC curve
+
+The AUC for LDA was also 0.986, similar to the one for Logistic Regression.
+
+```{r}
+ROCPred <- prediction(as.numeric(preds_lda$class), test_set$Classes)
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
@@ -282,48 +388,62 @@ plot(ROCPer, colorize = TRUE)
 
 [INTERPRETATION]
 
+### QDA
 
+Quadratic Discriminant Analysis is best used when the decision boundary of our given dataset is assumed to be non-linear. Similarly to LDA, QDA makes two basic assumptions: 
 
-### LDA
+1. There is a different covariance for each of the response classes
+2. The distribution of observations in each response class is normal with a **class-specific** mean, and a **class-specific** covariance
 
-#### Splitting the dataset
-Since LDA assumes that each input variable has the same variance, we will use the standardized data-frame in the train test splits. Each variable in the standardized data-frame has mean of 0 and variance of 1.
-
-The train test ratio chosen is 0.8:0.2 leaving 52 observations as unseen data for testing. 
-```{r}
-set.seed(6)
-split <- sample.split(df_scaled, SplitRatio=0.8)
-
-train_set <- subset(df_scaled, split == "TRUE")
-test_set <- subset(df_scaled, split=="FALSE")
-dim(train_set)
-dim(test_set)
-```
 
 #### Training the model
-We will train our model on the significant features selected in the feature selection phase. The data is standardized of course. 
+
+
 ```{r}
-lda_model = lda (Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set)
-lda_model
+qda_model = qda(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set)
+qda_model
 ```
-Interpretation on the coefficients: 
+
+[Interpretation on the coefficients]
 
 #### Testing the model
-After getting our predictions, we will use the confusion matrix function from the caret library that computes a set of performance matrices including f1-score, recall and precision. Other matrices computed include: sensitivity, specificity, prevalence etc. The official documentation for this function and the formulas for all matrices are found in this link: https://rdrr.io/cran/caret/man/confusionMatrix.html. We will only be interested in the f1-score, recall, precision, accuracy and balanced accuracy.
+
+##### On the train set
+
+Our model yields an accuracy of 97.9% and an F1 score of 98% on the training set.
+
+```{r}
+preds_qda = predict(qda_model,train_set, type="response")
+confusionMatrix(preds$class, train_set$Classes,
+                mode = "everything",
+                positive="1")
+```
+
+##### On the test set
 
 As we can see below, our the number of false positives is 0, and the number of false negatives is 2. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 96% and an accuracy of 96% as well.  
 
 ```{r}
-preds = predict(lda_model,test_set, type="response")
-confusionMatrix(preds$class, test_set$Classes,
+preds_qda = predict(qda_model,test_set, type="response")
+confusionMatrix(preds_qda$class, test_set$Classes,
                 mode = "everything",
                 positive="1")
 ```
-####Potting the ROC curve
+
+#### Potting the ROC curve
+
+After plotting the ROC curve we got an AUC of 0.953, which is a bit worse than the one in Logistic Regression and LDA.
 
 ```{r}
-pred <- prediction(preds$posterior[,2], test_set$Classes) 
-perf <- performance(pred,"tpr","fpr")
-plot(perf,colorize=TRUE)
+
+ROCPred <- prediction(as.numeric(preds_qda$class), test_set$Classes)
+ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
+auc <- performance(ROCPred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+plot(ROCPer, colorize = TRUE)
 ```
-Interpreation: 
+
+
+
+
