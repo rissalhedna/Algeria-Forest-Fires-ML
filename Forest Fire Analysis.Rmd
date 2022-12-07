@@ -421,7 +421,7 @@ confusionMatrix(preds$class, train_set$Classes,
 
 ##### On the test set
 
-As we can see below, our the number of false positives is 0, and the number of false negatives is 2. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 96% and an accuracy of 96% as well.  
+As we can see below, our the number of false positives is 1, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 97.3% and an accuracy of 96%.  
 
 ```{r}
 preds_qda = predict(qda_model,test_set, type="response")
