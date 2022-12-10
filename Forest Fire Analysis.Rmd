@@ -41,7 +41,8 @@ We first start off by importing the necessary libraries for our analysis.
 [INSERT DESCRIPTION OF EACH LIBRARY]
 
 ```{r, include=FALSE}
-
+library(GA)
+library(e1071)
 library(MASS)
 library(dplyr)
 library(vtable)
@@ -443,6 +444,332 @@ auc <- auc@y.values[[1]]
 auc
 plot(ROCPer, colorize = TRUE)
 ```
+
+
+### KNN Classifier
+In this section, we will explore KNN's performance on our problem. We will use hyper parameter tuning to determine the best number of nearest numbers (K) and we will also use repeated cross validation in our training for better performance estimation. 
+
+Since KNN is a distance based model, we will here again use our normalized dataset instead of the original. Once again the scaling technique used was the standard scaling using the function scale(). 
+
+#### Training the model
+
+##### Setting up the Cross-Validation for Hyperparameter tuning
+
+The summaryFunction argument determines which metric to use to determine the performance of a particular hyperparameter setting. Here we shall use defaultSummary which calculates accuracy and kappa statistic. 
+
+We have opted to go with the repeated 10 fold cross-validation method repeated 10 times. ClassProbs parameter is set to TRUE and we can set the threshold later when we test our model performance.
+
+```{r}
+training_control <- trainControl(method = "repeatedcv",
+                                 summaryFunction = defaultSummary,
+                                 classProbs = TRUE,
+                                 number = 10,
+                                 repeats = 10)
+```
+
+##### Training with Cross-validation
+
+Now we use the train() function to perform the model training/tuning of the k hyper-parameter.
+The range of k is from 3 to 85 in steps of 2 meaning we will only have odd values of k only as it is best practice for the KNN clustering.
+
+Another tweak that we need to make on our data-set is to change our target variable values to valid R variable names in order for the KNN algorithm to work with class Probabilities as each values of our target variable will become a variable with its own probability values. Leaving the values as {0,1} will throw an error at us, therefore we will set our Classes variable values back to 'Fire' and 'Not_Fire' and proceed. 
+
+```{r}
+train_set$Classes <- mapvalues(train_set$Classes, from=c(0,1), to=c("not_fire","fire"))
+test_set$Classes <- mapvalues(test_set$Classes, from=c(0,1), to=c("not_fire","fire"))
+
+```
+
+```{r}
+knn_cv <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, 
+                data = train_set,
+                method = "knn",
+                trControl = training_control,
+                metric = "Accuracy",
+                tuneGrid = data.frame(k = seq(3, 85, by = 2)))
+knn_cv
+```
+
+##### Distribution of predicted probabilites -threshold inspection-
+
+Inspecting the probabilities reveals that a cutoff probability around 0.5 give good classification results.
+```{r}
+preds = predict(knn_cv,train_set, type = "prob")
+train_set %>%
+  ggplot() +
+  aes(x = preds$fire, fill = Classes) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities for value fire" )
+```
+
+##### Plotting the training ROC curve
+
+```{r}
+pROC_train <- roc(response = train_set$Classes, predictor = preds[,"fire"],
+                quiet = TRUE,
+                plot = TRUE, 
+                percent = TRUE,
+                auc.polygon = TRUE, 
+                print.auc = TRUE, 
+                print.thres = TRUE,
+                print.thres.best.method = "youden")
+```
+
+#### Testing the model
+
+```{r}
+preds = predict(knn_cv,test_set, type="raw")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive="fire")
+```
+
+#### Potting the ROC curve on Test results
+
+```{r}
+preds <- as.vector(preds, mode = "numeric")
+test_set$Classes <- as.vector(test_set$Classes, mode = "numeric")
+
+pred <- prediction(preds, test_set$Classes) 
+
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+```
+ 
+### Ensemble Methods / Tree based methods
+
+#### Simple Decision Trees and tree pruning
+
+The goal of ensemble modeling is to improve performance over a baseline model by combining multiple models. So, we will set the baseline performance measure by starting with one algorithm. In our case, we will build a simple decision tree.
+
+Decision trees are widely used classifiers in industries based on their transparency in describing rules that lead to a prediction. They are arranged in a hierarchical tree-like structure and are simple to understand and interpret. They are not susceptible to outliers and are able to capture nonlinear relationships.
+
+We will be using the rpart library for creating decision trees. rpart stands for recursive partitioning and employs the CART (classification and regression trees) algorithm. Apart from the rpart library, there are many other decision tree libraries like C50, Party, Tree, and mapTree.
+
+```{r, results='hide'}
+library(rpart)
+library(rpart.plot)
+```
+
+
+##### Training the model with Pruning
+Next, we create a decision tree model by calling the rpart function. Let's first create a base model with default parameters and value. 
+
+Prepruning is also known as early stopping criteria. As the name suggests, the criteria are set as parameter values while building the rpart model. Below are some of the pre-pruning criteria that can be used. The tree stops growing when it meets any of these pre-pruning criteria, or it discovers the pure classes.
+
+The complexity parameter (cp) in rpart is the minimum improvement in the model needed at each node. It’s based on the cost complexity of the model and works as follows: 
+
+- For the given tree, add up the misclassification at every terminal node.
+- Then multiply the number of splits time a penalty term (lambda) and add it to the total misclassification.
+- The lambda is determined through cross-validation and not reported in R.
+- The cp we see using printcp() is the scaled version of lambda over the misclassifcation rate of the overall data.
+
+The cp value is a stopping parameter. It helps speed up the search for splits because it can identify splits that don’t meet this criteria and prune them before going too far.
+
+Other parameters include but are not limited to: 
+
+- maxdepth: This parameter is used to set the maximum depth of a tree. In this prepruning step.
+
+- minsplit: It is the minimum number of records that must exist in a node for a split to happen or be attempted.
+
+And one last thing, since we are in a classification setting, we have to specify class as the method used for building our tree instead of 'anova' that is used in regression settings. 
+
+```{r}
+base_model <- rpart(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set, method = "class",  control = rpart.control(cp = 0, maxdepth = 8, minsplit = 8))
+summary(base_model)
+#Plot Decision Tree
+rpart.plot(base_model)
+```
+
+The summary of our base model will give us the details of each split with the number of observations, the value of the complexity parameter, the predicted class, the class counts with their probabilites and the children of the node. It will also give details about the future splits starting with the primary splits that will follow and the percent improvement in the prediction as well as the surrogate splits that come later on. 
+
+The resulting tree as explained in the above section, is the smallest tree with the lowest miss-classification loss. This tree is plotted with the split details and leaf node classes. 
+
+The optimal CP value found was 0.96341463.
+
+```{r}
+preds = predict(base_model,train_set, type="class")
+confusionMatrix(preds, train_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+The train accuracy of our tree is 99% with an F1 score of 99% as well with a total of 2 misclassifications, 1 FP and 1 FN.  
+
+##### Testing the model
+
+We have a 100% accuracy on our held-out validation set which means we have successfully avoided overfitting using tree pruning. 
+
+```{r}
+preds = predict(base_model,test_set, type="class")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+
+##### ROC curve
+
+```{r}
+preds <- as.vector(preds, mode = "numeric")
+test_set$Classes <- as.vector(test_set$Classes, mode = "numeric")
+
+pred <- prediction(preds, test_set$Classes) 
+
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+```
+
+#### BAGGING
+
+Bagging, or bootstrap aggregation, is an ensemble method that involves training the same algorithm many times by using different subsets sampled from the training data. The final output prediction is then averaged across the predictions of all the sub-models. The two most popular bagging ensemble techniques are Bagged Decision Trees and Random Forest.
+
+##### Bagged Decision Trees
+
+This method performs best with algorithms that have high variance. The argument method="treebag" specifies the algorithm. We will train our model using a 5-fold cross validation repeated 5 times. The sampling strategy used for the bagged trees is ROSE.
+
+###### Training the model
+```{r}
+control <- trainControl(method="repeatedcv", number=5, repeats=5)
+
+bagCART_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="treebag", metric="Accuracy", trControl=control)
+```
+###### Training accuracy
+```{r}
+preds = predict(bagCART_model,train_set, type="raw")
+confusionMatrix(preds, train_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+###### Testing accuracy
+```{r}
+preds = predict(bagCART_model,test_set, type="raw")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+##### Random Forests
+Random Forest is an extension of bagged decision trees, where in addition to sampling the data, we also sample the variables in each bagged decision tree. The trees are constructed with the objective of reducing the correlation between the individual decision trees by making sure we do not use the same strong predictors in all bagged trees resulting in strongly correlated trees.
+
+###### Training the model
+```{r}
+control <- trainControl(method="repeatedcv", number=5, repeats=5)
+
+rf_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="rf", metric="Accuracy", trControl=control)
+```
+###### Training accuracy
+```{r}
+preds = predict(rf_model,train_set, type="raw")
+confusionMatrix(preds, train_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+###### Testing accuracy
+```{r}
+preds = predict(rf_model,test_set, type="raw")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+
+#### BOOSTING
+In boosting, multiple models are trained sequentially and each model learns from the errors of its predecessors. We will use the Stochastic Gradient Boosting algorithm.
+
+##### Stochastic Gradient Boosting
+###### Training the model
+```{r, results="hide"}
+control <- trainControl(method="repeatedcv", number=5)
+
+SGB <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="gbm", metric="Accuracy", trControl=control)
+```
+###### Training accuracy
+```{r}
+preds = predict(SGB,train_set, type="raw")
+confusionMatrix(preds, train_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+###### Testing accuracy
+```{r}
+preds = predict(SGB,test_set, type="raw")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+### SVM
+
+Support Vector Machine is a discriminative classifier that classifies obserations using a hyperplane that best differentiates between the classes. Its advantages lay in the fact that they are very flexible and work well on high-dimensional data.
+
+We will use SVM on our dataset to demonstrate its capabilities.
+
+#### Training the model
+
+The goal of the SVM is to identify a boundary that minimizes the total distance between the hyper-plane and the closest points on each class.
+
+There are two hyper-parameters to take into consideration before training our SVM model: first, the cost *C* which acts as a regularization parameter and trades off correct classifications of the training examples against the maximization of the decision boundary. In other words, the greater the value of *C* the higher the number of errors occurring in the training classifications. The second hyper-parameter *gamma* defines how much curvature we want in our decision boundary. 
+
+We start by tuning our model according to different values of *gamma* and *C*. We will start by using a linear kernel.
+
+To use the cross validation functions from the [Caret](https://topepo.github.io/caret/train-models-by-tag.html#l1-regularization) package, we need to turn the 0/1 categorical values of the variable *Classes* into "fire"/"not_fire" (as required). The functions provided will allow us to find the best values for both *gamma* and *C*. we used a tuning length of 10.
+
+```{r}
+train_set$Classes <- mapvalues(train_set$Classes, from=c(0,1), to=c("not_fire","fire"))
+test_set$Classes <- mapvalues(test_set$Classes, from=c(0,1), to=c("not_fire","fire"))
+```
+
+We perform repeated cross validation with 
+
+
+```{r}
+control = trainControl(method = "repeatedcv", repeats=5, summaryFunction=twoClassSummary, classProbs=TRUE)
+
+svm_model_radial <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data =train_set, method="svmRadial", tuneLength=10, metric="ROC", trControl=control)
+
+svm_model_linear <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data =train_set, method="svmLinear", tuneLength=10, metric="ROC", trControl=control)
+
+svm_model_radial
+svm_model_linear
+```
+
+As we can see above, the best values were found to be *sigma* = 0.2510562 and *C* = 16 for the radial kernel, and *C* = 1 for the linear kernel.
+
+Using the radial kernel resulted in an *AUC* of 99% while the linear gave us an *AUC* of 99.8%.
+
+NOTE: Even though the seed is set at 6, the values for *C* and *sigma* might change when trying to reproduce the experiment due to the dataset being small nd relatively non-complex. Still, the values for the AUC and accuracy will be still very high.
+
+We will then proceed to show the confusion matrix of the model.
+
+```{r}
+preds_svm_train_linear <- predict(svm_model_linear, train_set)
+preds_svm_train_radial <- predict(svm_model_radial, train_set)
+  
+confusionMatrix(preds_svm_train_linear,train_set$Classes, positive="fire")
+confusionMatrix(preds_svm_train_radial,train_set$Classes, positive="fire")
+
+preds_svm_test_linear <- predict(svm_model_linear, test_set)
+preds_svm_test_radial <- predict(svm_model_radial, test_set)
+
+confusionMatrix(preds_svm_test_linear,test_set$Classes, positive="fire")
+confusionMatrix(preds_svm_test_radial,test_set$Classes, positive="fire")
+```
+
+For the radial kernel: our model gave us an accuracy of 100% on the training set and 96.15% on the test set.
+
+For the linear kernel: the model gave an accuracy of 98.95% on the train set and performed worse than the radial kernel, which is expected since it is less flexible and fits the data less well. On the test set however, it gave us the same accuracy. 
+
+Overall, since our focus would be to correctly classify fires, we will go with the radial kernel since it gave us a fewer number of false negatives than the linear one.
+
+#### Plotting the ROC curve
+
+```{r}
+
+ROCPred <- prediction(as.numeric(preds_svm_test), as.numeric(test_set$Classes))
+ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
+auc <- performance(ROCPred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+plot(ROCPer, colorize = TRUE)
+```
+
+We get an AUC value of 0.953 using the SVM classifier.
 
 
 
