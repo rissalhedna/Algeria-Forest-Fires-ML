@@ -1,5 +1,5 @@
 ---
-title: "<center>Algerian Forest Fire Analysis</center><br/>"
+title: Algerian Forest Fire Analysis
 author:
 - Mohamed Rissal Hedna 201906233
 - Younes Djemmal 201906303
@@ -7,7 +7,11 @@ output:
   html_document:
     df_print: paged
   pdf_document: default
+
 ---
+```{r include = FALSE}
+knitr::opts_chunk$set(warning=FALSE)
+```
 ## Overview
 ### Background
 
@@ -87,7 +91,7 @@ The Dataset provided to us was in the form of a .csv file that contained two tab
 Before starting our analysis we separated the tables into two distinct files according to the region. We named both files *Algerian_forest_fires_dataset_Bejaia.csv* and *Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv* for Bejaia and Sidi-Bel Abbes respectively.
 
 
-```{r, echo=FALSE}
+```{r, message=FALSE}
 df_b <- read.csv("./Algerian_forest_fires_dataset_Bejaia.csv")
 df_s <- read.csv("./Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv")
 ```
@@ -95,7 +99,6 @@ df_s <- read.csv("./Algerian_forest_fires_dataset_Sidi_Bel_Abbes.csv")
 ### Cleaning and processing the data
 
 We first check the existence of null values in the Dataset, none were found.
-
 
 ```{r}
 colSums(is.na(df_b))
@@ -108,24 +111,23 @@ We then process to add a column in both datasets to indicate the region(Wilaya) 
 2. Sidi-Bel Abbes = 1
 
 
-```{r}
+```{r, echo=FALSE}
 df_b[["Region"]] = 0
 df_s[["Region"]] = 1
 ```
 
 After that, we proceed to merge both our datasets into one single dataframe using *full_join()*, this will allow us to easily explore and analyze the data.
 
-```{r}
+```{r, echo=FALSE}
 df_s$DC <- as.double(df_s$DC)
 df_s$FWI <- as.double(df_s$FWI)
 
 df = full_join(df_s, df_b)
-
-dim(df)
-str(df)
 ```
 
-```{r}
+```{r, include = FALSE}
+dim(df)
+str(df)
 summary(df)
 unique(df$year)
 unique(df$month)
@@ -151,11 +153,7 @@ We find that the Classes column has values that contain unneeded space character
 
 ```{r}
 df$Classes <- trimws(df$Classes, which = c("both"))
-```
 
-
-
-```{r}
 unique(df$Classes)
 df = df %>% drop_na(Classes)
 ```
@@ -193,6 +191,7 @@ Our first instinct is to compare the two regions together in terms of number of 
 aggregate(df$Classes ~ df$Region, FUN = sum)
 aggregate(df$Temperature ~ df$Region, FUN = mean)
 ```
+
 We used the unscaled dataset to plot the real life values of the temperatures.
 
 ```{r}
@@ -206,6 +205,7 @@ df %>%
 We can see that the the Sidi-Bel Abbes region has in total a greater number of fires and a higher average temperature throughout the summer of 2012.
 
 ## Further Analysis
+
 ### Correlation Matrix
 
 The previous results push us to suspect a positive relationship between the temperature and the likelihood of having a fire. However, we need to investigate all the other variables, which is why we will plot a correlation matrix of the features in the dataset.
@@ -233,7 +233,7 @@ In this case, we opted for Linear Discriminant Analysis with Stepwise Feature Se
 The *varImp* function returns a measure of importance out of 100 for each of the features. According to the official [Caret documentation](https://topepo.github.io/caret/variable-importance.html), the importance metric is calculated by conducting a ROC curve analysis on each predictor; a series of cutoffs is applied to the predictor data to predict the class. The AUC is then computed and is used as a measure of variable importance. 
 
 
-```{r}
+```{r, message=FALSE}
 # prepare training scheme
 df_scaled$Classes = as.factor(df_scaled$Classes)
 
@@ -245,6 +245,8 @@ importanceLDA <- varImp(modelLDA, scale=FALSE)
 
 plot(importanceLDA)
 ```
+
+
 We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model. To determine this we used a threshold of 0.7 for the *importance* measure.
 
 
@@ -291,7 +293,7 @@ Logistic Regression is considered to be an extension of Linear Regression, in wh
 
 We first start by fitting our model on the training set. As we do that we get an error that our model did not converge, this is due to our model being able to perfectly split the dataset into positive/negative observations. This might soud counterintuitive but this error is a good sign.
 
-```{r}
+```{r, warning = FALSE, error = FALSE}
 logistic_model <- glm(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, family="binomial")
 
 logistic_model
@@ -303,11 +305,11 @@ Since logistic regression gives us the probability of each observation belonging
 
 After getting our predictions, we will use the confusion matrix function from the caret library that computes a set of performance matrices including f1-score, recall and precision. Other matrices computed include: sensitivity, specificity, prevalence etc. The official documentation for this function and the formulas for all matrices are found in this [link.](https://rdrr.io/cran/caret/man/confusionMatrix.html) We will only be interested in the f1-score, recall, precision, accuracy and balanced accuracy.
 
-#### On the train set
+#### On the training set
 
 Our model gives us an accuracy and an f1 score of 100% on the training set.
 
-```{r}
+```{r, warning = FALSE}
 preds_logistic <- predict(logistic_model, train_set, type="response")
 
 preds_logistic <- ifelse(preds_logistic >0.5,1,0)
@@ -319,7 +321,7 @@ confusionMatrix(preds_logistic, train_set$Classes,
 ```
 
 
-#### On the test set
+#### On the testing set
 
 On the test set hovewer, we get an accuracy of 98.08% and an f1 score of 98.25%.
 
@@ -340,16 +342,16 @@ confusionMatrix(preds_logistic, test_set$Classes,
 
 #### Plotting the ROC curve
 
-As we plot the ROC curve, we can see that the AUC is equal to 98.27586% which is almost a perfect classifier.
+As we plot the ROC curve, we can see that the AUC is equal to 98.27% which is almost a perfect classifier.
 
-```{r}
+```{r, echo = FALSE}
 ROCPred <- prediction(as.numeric(preds_logistic), test_set$Classes)
 
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc
-plot(ROCPer, colorize = TRUE)
+print(paste("The AUC is: ",auc))
+plot(ROCPer)
 ```
 
 
@@ -374,7 +376,7 @@ lda_model
 
 #### Testing the model
 
-#### On the train set
+#### On the training set
 
 On our training data, the model reached an accuracy of 95.81% and an f1 score of 96.30%, with 4 false positives and 1 false negative.
 
@@ -385,7 +387,7 @@ confusionMatrix(preds_lda$class, train_set$Classes,
                 positive="1")
 ```
 
-#### On the test set
+#### On the testing set
 
 As we can see below, our the number of false positives is 1, and the number of false negatives is 1 as well. Our model also yielded an accuracy of 96.15% and an f1 score of 96.55%.
 
@@ -400,13 +402,13 @@ confusionMatrix(preds_lda$class, test_set$Classes,
 
 The AUC for LDA was 96.10%, similar to the one for Logistic Regression.
 
-```{r}
+```{r, echo = FALSE}
 ROCPred <- prediction(as.numeric(preds_lda$class), test_set$Classes)
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc
-plot(ROCPer, colorize = TRUE)
+print(paste("The AUC is: ",auc))
+plot(ROCPer)
 ```
 
 
@@ -426,11 +428,11 @@ qda_model = qda(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=trai
 qda_model
 ```
 
-[Interpretation on the coefficients]
+
 
 #### Testing the model
 
-##### On the train set
+##### On the training set
 
 Our model yields an accuracy of 98.43% and an f1 score of 98.62% on the training set.
 
@@ -441,7 +443,7 @@ confusionMatrix(preds_qda$class, train_set$Classes,
                 positive="1")
 ```
 
-##### On the test set
+##### On the testing set
 
 As we can see below, our the number of false positives is 1, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 93.33% and an accuracy of 92.31%.  
 
@@ -456,14 +458,14 @@ confusionMatrix(preds_qda$class, test_set$Classes,
 
 After plotting the ROC curve we got an AUC of 91.75%, which is worse than both logistic regression and LDA.
 
-```{r}
+```{r, echo = FALSE}
 
 ROCPred <- prediction(as.numeric(preds_qda$class), test_set$Classes)
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc
-plot(ROCPer, colorize = TRUE)
+print(paste("The AUC is: ",auc))
+plot(ROCPer)
 ```
 
 We can observe that QDA performs better than LDA on the training data, because it has the tendency to over-fit it. However, LDA performs better on the testing data since it generalizes better on unseen data points.
@@ -546,13 +548,13 @@ confusionMatrix(preds_knn, test_set_knn$Classes,
 
 After plotting the ROC curve, we get an AUC of 86.58% which is the worst out of all of our models so far.
 
-```{r}
+```{r, echo = FALSE}
 preds <- prediction(as.numeric(preds_knn), as.numeric(test_set_knn$Classes)) 
 perf <- performance(preds,"tpr","fpr")
 auc <- performance(preds, measure = "auc")
 auc <- auc@y.values[[1]]
-auc 
-plot(perf,colorize=TRUE)
+print(paste("The AUC is: ",auc))
+plot(perf)
 ```
  
 ### Ensemble Methods / Tree based methods
@@ -580,14 +582,16 @@ summary(base_model)
 #Plot Decision Tree
 rpart.plot(base_model)
 ```
+
+
 #### Testing the unpruned model
 
 #### On the training set
 
-After exploring the confusion matrix and the different performance metrics, we can see that our base decision tree does not fit the data perfectly and has 3 miss-classifications on the training set. Those 3 false positives caused the model's accuracy to be 98.43% and the f1-score to be 98.63%.
+After exploring the confusion matrix and the different performance metrics, we can see that our base decision tree does not fit the data perfectly and has 3 miss-classifications on the training set. Those 3 false positives caused the model's accuracy to be 98.43% and the f1 score to be 98.63%.
 
 ```{r}
-preds_unpruned= predict(base_model,train_set, type="class")
+preds_unpruned= predict(base_model, train_set, type="class")
 confusionMatrix(preds_unpruned, train_set$Classes, mode = "everything", positive='1')
 ```
 
@@ -606,13 +610,13 @@ confusionMatrix(preds_unpruned, test_set$Classes,
 
 This model gives us an AUC of 97.82%
 
-```{r}
+```{r, echo = FALSE}
 preds <- prediction(as.numeric(preds_unpruned), test_set$Classes) 
 perf <- performance(preds,"tpr","fpr")
 auc <- performance(preds, measure = "auc")
 auc <- auc@y.values[[1]]
-auc 
-plot(perf,colorize=TRUE)
+print(paste("The AUC is: ",auc))
+plot(perf)
 ```
 
 #### Training the model with pruning
@@ -643,6 +647,8 @@ summary(pruned_base_model)
 printcp(pruned_base_model)
 rpart.plot(pruned_base_model)
 ```
+
+
 The summary of our base model will give us the details of each split with the number of observations, the value of the complexity parameter, the predicted class, the class counts with their probabilities and the children of the node. It will also give details about the future splits starting with the primary splits that will follow and the percent improvement in the prediction as well as the surrogate splits that come later on. 
 
 The resulting tree as explained in the above section, is the smallest tree with the lowest miss-classification loss. This tree is plotted with the split details and leaf node classes. 
@@ -676,15 +682,15 @@ confusionMatrix(preds_pruned, test_set$Classes,
 
 ##### ROC curve for pruned model
 
-The AUC was 96.55%
+The resulting AUC is 96.55%
 
-```{r}
-pred <- prediction(as.numeric(preds), test_set$Classes) 
+```{r, echo = FALSE}
+pred <- prediction(as.numeric(preds_pruned), test_set$Classes) 
 auc <- performance(pred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc 
+print(paste("The AUC is: ",auc))
 perf <- performance(pred,"tpr","fpr")
-plot(perf,colorize=TRUE)
+plot(perf)
 ```
 
 
@@ -795,8 +801,8 @@ confusionMatrix(preds_sgb, train_set$Classes,
 98.08% accuracy on unseen data, same as the training set, boosting brought much improvement over our random forest model even though it took a greater training time.
 
 ```{r}
-preds = predict(SGB,test_set, type="raw")
-confusionMatrix(preds, as.factor(test_set$Classes),
+preds_sgb = predict(SGB,test_set, type="raw")
+confusionMatrix(preds_sgb, as.factor(test_set$Classes),
                 mode = "everything",
                 positive='1')
 ```
@@ -845,9 +851,7 @@ svm_model_radial
 svm_model_linear
 ```
 
-The optimal value for *C* is 4 and *sigma* is 0.2091942
-
-Using the radial kernel resulted in an *AUC* of 99% while the linear gave us an *AUC* of 99.8%.
+From the results above we can see the best values for *sigma* and *C*
 
 We will then proceed to show the confusion matrix of the model.
 
@@ -865,9 +869,7 @@ confusionMatrix(preds_svm_test_linear,test_set_svm$Classes, positive="fire")
 confusionMatrix(preds_svm_test_radial,test_set_svm$Classes, positive="fire")
 ```
 
-For the radial kernel: our model gave us an accuracy of 100% on the training set and 94.23% on the test set.
-
-For the linear kernel: the model gave an accuracy of 98.95% on the train set and performed worse than the radial kernel, which is expected since it is less flexible and fits the data less well. On the test set however, it gave us an accuracy of 96.15%. 
+The linear kernel performed worse on the training data than the radial kernel, which is expected since it is less flexible and fits the data less well. On the test set however, it gave us a higher level of accuracy.
 
 Overall, the linear kernel did a better job at generalizing on unseen data, which is why we will go for it in our model.
 
@@ -875,19 +877,106 @@ Overall, the linear kernel did a better job at generalizing on unseen data, whic
 
 The model with the linear kernel gave us an AUC of 96.10%
 
-```{r}
+```{r, echo = FALSE}
 
 ROCPred <- prediction(as.numeric(preds_svm_test_linear), as.numeric(test_set_svm$Classes))
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc 
-plot(ROCPer, colorize = TRUE)
+print(paste("The AUC is: ",auc))
+plot(ROCPer)
 
 ```
 
 
 
+## Comparing the Models
+
+To compare accross our models, we created a function that gets the different relevant metrics and stores them in a dataframe. The metrics we are concerned about are:
+1. accuracy
+2. f1 score
+3. auc
+4. error rate
+5. precision
+6. recall
+7. specificity
+8. balanced accuracy
+9. false positive rates and false negative rates
 
 
+```{r}
+#Import metrica package that gives access to a variety of performance metrics in R
+library(metrica)
+library(cvAUC)
+#First we initialize a vector with our column names
+columns = c("Model","Accuracy", "F1-Score", "AUC_roc","Error_Rate","Precision","Recall", "Specificity", "Balanced Accuracy", "FPR", "FNR")
+#Now we define a function that takes in our model, reference which is our test set, predictions and the dataframe
+comparison_metrics <- function(model_name, obs, pred) {
+  obs = as.numeric(obs)
+  pred = as.numeric(pred)
+   acc <- accuracy(obs = obs,pred = pred)
+   f1 <- fscore(obs = obs,pred = pred)
+   auc <- AUC(pred, obs)
+   errate <- error_rate(obs = obs,pred = pred)
+   precision <- precision(obs = obs,pred = pred)
+   recall <- recall(obs = obs,pred = pred)
+   specificity <- specificity(obs = obs,pred = pred)
+   ba <- balacc(obs = obs,pred = pred)
+   fpr <- FPR(obs = obs,pred = pred)
+   fnr <- FNR(obs = obs,pred = pred)
+   
+   return(c(model_name,acc,f1,auc,errate,precision,recall,specificity,ba,fpr,fnr))
+}
+comparison_df = data.frame(matrix(nrow = 0, ncol = length(columns)))
+colnames(comparison_df) = columns
+
+```
+
+We then insert the metrics according to each model row by row into our dataframe.
+
+```{r}
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Logistic regression", test_set$Classes, preds_logistic)
+
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("LDA", test_set$Classes, preds_lda$class )
+
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("QDA", test_set$Classes, preds_qda$class)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("KNN", test_set$Classes,preds_knn)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Unpruned_Trees", test_set$Classes, preds_unpruned)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Pruned_Trees", test_set$Classes, preds_pruned)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Bagged_Trees", test_set$Classes, preds_bag)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Random_Forest", test_set$Classes, preds_rf)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("Boosted_Trees", test_set$Classes, preds_sgb)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("SVM_linear", test_set$Classes, preds_svm_test_linear)
+comparison_df[nrow(comparison_df) + 1, ] <- comparison_metrics("SVM_radial", test_set$Classes, preds_svm_test_radial)
+
+```
+
+This results in the following matrix
+
+```{r}
+comparison_df
+```
+
+
+### Visualizing the results
+
+As we can see below, the logistic regression model got the greatest AUC value among all models and performed as well as boosted trees and bagged trees, while KNN and SVM with a radial kernel got the smallest values for AUC. 
+
+
+```{r}
+comparison_df_sorted <- comparison_df[order(-comparison_df$AUC_roc),]
+
+comparison_df_sorted %>%
+  ggplot(aes(x=reorder(Model,+AUC_roc), y=AUC_roc, fill=Model)) +
+  theme(axis.text.x=element_blank()) +
+  labs(x = "Models Tested", y = "AUC Value") +
+  geom_col(position="dodge")
+```
+
+
+### Observations
+
+1. We can see from the above visual that LDA has performed better than QDA on the test dataset. We can conclude from this observation that QDA tends to over-fit the training dataset and lead to a decreased ability to generalize on unseen data.
+2. The unpruned model was able to learn more features from our dataset than the pruned model, and thus led to a better classification accuracy and a higher AUC value. 
+3. SVM with a linear kernel resulted in a better AUC value than the linear one, which pushes us to believe that the decision boundary in our dataset is linear.
 
