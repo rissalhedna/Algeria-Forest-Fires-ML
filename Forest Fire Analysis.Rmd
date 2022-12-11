@@ -496,6 +496,8 @@ test_set$Classes <- mapvalues(test_set$Classes, from=c(0,1), to=c("not_fire","fi
 
 ```
 
+After the tuning process, the best value for K was found to be 67, which yielded an accuracy of 94.88%
+
 ```{r}
 knn_cv <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, 
                 data = train_set,
@@ -508,7 +510,8 @@ knn_cv
 
 ##### Distribution of predicted probabilites -threshold inspection-
 
-Inspecting the probabilities reveals that a cutoff probability around 0.5 give good classification results.
+Inspecting the probabilities reveals that a cutoff probability around 0.5 give good classification results
+
 ```{r}
 preds = predict(knn_cv,train_set, type = "prob")
 train_set %>%
@@ -518,24 +521,13 @@ train_set %>%
   labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities for value fire" )
 ```
 
-##### Plotting the training ROC curve
-
-```{r}
-pROC_train <- roc(response = train_set$Classes, predictor = preds[,"fire"],
-                quiet = TRUE,
-                plot = TRUE, 
-                percent = TRUE,
-                auc.polygon = TRUE, 
-                print.auc = TRUE, 
-                print.thres = TRUE,
-                print.thres.best.method = "youden")
-```
-
 #### Testing the model
 
+When testing our model on the test set, we get an accuracy of 86.54% and an f1 score of 87.77%. So far, KNN has performed the worst compared to our previous models.
+
 ```{r}
-preds = predict(knn_cv,test_set, type="raw")
-confusionMatrix(preds, test_set$Classes,
+preds_knn = predict(knn_cv,test_set, type="raw")
+confusionMatrix(preds_knn, test_set$Classes,
                 mode = "everything",
                 positive="fire")
 ```
@@ -555,6 +547,7 @@ plot(perf,colorize=TRUE)
 ### Ensemble Methods / Tree based methods
 
 #### Simple Decision Trees and tree pruning
+
 The goal of ensemble modeling is to improve performance over a baseline model by combining multiple models. So, we will set the baseline performance measure by starting with one algorithm. In our case, we will build a simple decision tree.
 
 Decision trees are widely used classifiers in industries based on their transparency in describing rules that lead to a prediction. They are arranged in a hierarchical tree-like structure and are simple to understand and interpret. They are not susceptible to outliers and are able to capture nonlinear relationships.
