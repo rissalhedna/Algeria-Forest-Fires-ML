@@ -1,9 +1,12 @@
 ---
-title: <center>Algerian Forest Fire Analysis</center><br/>
-output: html_notebook
+title: "<center>Algerian Forest Fire Analysis</center><br/>"
 author:
-  - Mohamed Rissal Hedna 201906233
-  - Younes Djemmal 201906303
+- Mohamed Rissal Hedna 201906233
+- Younes Djemmal 201906303
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
 ---
 ## Overview
 ### Background
@@ -536,6 +539,7 @@ preds_knn = predict(knn_cv,test_set_knn, type="raw")
 confusionMatrix(preds_knn, test_set_knn$Classes,
                 mode = "everything",
                 positive="fire")
+
 ```
 
 #### Potting the ROC curve
@@ -576,14 +580,18 @@ summary(base_model)
 #Plot Decision Tree
 rpart.plot(base_model)
 ```
+#### Testing the unpruned model
+
+#### On the training set
+
 After exploring the confusion matrix and the different performance metrics, we can see that our base decision tree does not fit the data perfectly and has 3 miss-classifications on the training set. Those 3 false positives caused the model's accuracy to be 98.43% and the f1-score to be 98.63%.
 
 ```{r}
-preds_tree = predict(base_model,train_set, type="class")
-confusionMatrix(preds_tree, train_set$Classes, mode = "everything", positive='1')
+preds_unpruned= predict(base_model,train_set, type="class")
+confusionMatrix(preds_unpruned, train_set$Classes, mode = "everything", positive='1')
 ```
 
-#### Testing the unpruned model
+#### On the testing set
 
 Our base decision tree performs very well on unseen data with just one false positive, an accuracy of 98% and an f1-score of 98.31%. 
 
@@ -599,7 +607,7 @@ confusionMatrix(preds_unpruned, test_set$Classes,
 This model gives us an AUC of 97.82%
 
 ```{r}
-preds <- prediction(as.numeric(preds_unpruned), temp_test_set.classes) 
+preds <- prediction(as.numeric(preds_unpruned), test_set$Classes) 
 perf <- performance(preds,"tpr","fpr")
 auc <- performance(preds, measure = "auc")
 auc <- auc@y.values[[1]]
@@ -641,33 +649,37 @@ The resulting tree as explained in the above section, is the smallest tree with 
 
 The optimal CP value found was 0.012048 
 
+#### Testing the pruned model 
+
+#### On the training set
+
+
 ```{r}
-preds = predict(pruned_base_model,train_set, type="class")
-confusionMatrix(preds, train_set$Classes,
+preds_pruned = predict(pruned_base_model,train_set, type="class")
+confusionMatrix(preds_pruned, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
 
-The train accuracy of our tree is 98.95% with an f1 score of 99% as well with a total of 2 missclassifications, 1 FP and 1 FN.  
+The train accuracy of our tree is 98.95% with an f1 score of 99% as well with a total of 2 miss-classifications, 1 FP and 1 FN.  
 
-##### Testing the pruned model
+##### On the testing set
 
 We have a 96.15% accuracy on our held-out validation set which means we have successfully avoided over-fitting using tree pruning. 
 
 ```{r}
-preds = predict(pruned_base_model,test_set, type="class")
-confusionMatrix(preds, test_set$Classes,
+preds_pruned = predict(pruned_base_model,test_set, type="class")
+confusionMatrix(preds_pruned, test_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
+
 ##### ROC curve for pruned model
 
 The AUC was 96.55%
 
 ```{r}
-preds <- as.vector(preds, mode = "numeric")
-test_set$Classes <- as.vector(test_set$Classes, mode = "numeric")
-pred <- prediction(preds, test_set$Classes) 
+pred <- prediction(as.numeric(preds), test_set$Classes) 
 auc <- performance(pred, measure = "auc")
 auc <- auc@y.values[[1]]
 auc 
@@ -698,8 +710,8 @@ bagCART_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, da
 We achieved a perfect fit using bagged trees trained using a 5-fold CV repeated 5 times.
 
 ```{r}
-preds = predict(bagCART_model,train_set, type="raw")
-confusionMatrix(preds, train_set$Classes,
+preds_bag = predict(bagCART_model,train_set, type="raw")
+confusionMatrix(preds_bag, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
@@ -708,9 +720,8 @@ confusionMatrix(preds, train_set$Classes,
 The bagged model did not achieve a perfect performance on unseen data which leads us to believe it over fit the data. This can be caused by the fact that the bagged trees were highly correlated between each other which could be due to the absence of randomization in the features used for each bagged tree. What happened most probably is the use of the same strong predictors in all bagged trees causing this high correlation between them. In order to get rid of it we will implement Random Forests next which adds this randomization in the features selected for each bagged tree. The accuracy we got is 98%
 
 ```{r}
-preds = predict(bagCART_model,test_set, type="raw")
-preds <- mapvalues(preds, from=c(0,1), to=c(1,2))
-confusionMatrix(preds, as.factor(test_set$Classes),
+preds_bag = predict(bagCART_model,test_set, type="raw")
+confusionMatrix(preds_bag, as.factor(test_set$Classes),
                 mode = "everything",
                 positive='1')
 ```
@@ -727,25 +738,26 @@ control <- trainControl(method="repeatedcv", number=5, repeats=5)
 rf_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="rf", metric="Accuracy", trControl=control)
 ```
 
-#### Training accuracy
+#### Testing the model 
+
+#### On the training set
 
 Once again, our random forest model achieved a perfect first with a 5-fold CV repeated 5 times. 
 
 ```{r}
-preds = predict(rf_model,train_set, type="raw")
-confusionMatrix(preds, train_set$Classes,
+preds_rf = predict(rf_model,train_set, type="raw")
+confusionMatrix(preds_rf, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
 
-#### Testing accuracy
+#### On the testing set
 
 On our dataset, the random forest did not perform better that the previous models, yielding an accuracy of 96.15%. So far, BAGGING has been the best method.
 
 ```{r}
-preds = predict(rf_model,test_set, type="raw")
-preds <- mapvalues(preds, from=c(0,1), to=c(1,2))
-confusionMatrix(preds, as.factor(test_set$Classes),
+preds_rf = predict(rf_model,test_set, type="raw")
+confusionMatrix(preds_rf, as.factor(test_set$Classes),
                 mode = "everything",
                 positive='1')
 ```
@@ -764,24 +776,26 @@ control <- trainControl(method="cv", number=5)
 
 SGB <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="gbm", metric="Accuracy", trControl=control)
 ```
-##### Training accuracy
 
-100% accuracy on training data.
+#### Testing the model
+
+#### On the training set
+
+99.48% accuracy on training data.
 
 ```{r}
-preds = predict(SGB,train_set, type="raw")
-confusionMatrix(preds, train_set$Classes,
+preds_sgb = predict(SGB,train_set, type="raw")
+confusionMatrix(preds_sgb, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
 
-##### Testing accuracy
+#### On the testing set
 
 98.08% accuracy on unseen data, same as the training set, boosting brought much improvement over our random forest model even though it took a greater training time.
 
 ```{r}
 preds = predict(SGB,test_set, type="raw")
-preds <- mapvalues(preds, from=c(0,1), to=c(1,2))
 confusionMatrix(preds, as.factor(test_set$Classes),
                 mode = "everything",
                 positive='1')
@@ -810,7 +824,6 @@ We start by tuning our model according to different values of *gamma* and *C*. W
 To use the cross validation functions from the [Caret](https://topepo.github.io/caret/train-models-by-tag.html#l1-regularization) package, we need to turn the 0/1 categorical values of the variable *Classes* into "fire"/"not_fire" (as required). The functions provided will allow us to find the best values for both *gamma* and *C*. we used a tuning length of 10.
 
 ```{r}
-
 train_set_svm <- train_set
 test_set_svm <- test_set
 
@@ -824,14 +837,15 @@ We perform cross validation repeated 5 times.
 ```{r}
 control = trainControl(method = "repeatedcv", repeats=5, summaryFunction=twoClassSummary, classProbs=TRUE)
 
-svm_model_radial <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data =train_set_svm, method="svmRadial", tuneLength=10, metric="ROC", trControl=control)
+svm_model_radial <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set_svm, method="svmRadial", tuneLength=10, metric="ROC", trControl=control)
 
-svm_model_linear <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data =train_set_svm, method="svmLinear", tuneLength=10, metric="ROC", trControl=control)
+svm_model_linear <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set_svm, method="svmLinear", tuneLength=10, metric="ROC", trControl=control)
 
 svm_model_radial
 svm_model_linear
 ```
 
+The optimal value for *C* is 4 and *sigma* is 0.2091942
 
 Using the radial kernel resulted in an *AUC* of 99% while the linear gave us an *AUC* of 99.8%.
 
@@ -872,7 +886,7 @@ plot(ROCPer, colorize = TRUE)
 
 ```
 
-We get an AUC value of 0.953 using the SVM classifier.
+
 
 
 
