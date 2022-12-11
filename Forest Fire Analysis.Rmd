@@ -38,26 +38,42 @@ The Dataset we will use to train and test our models consists of 244 observation
 
 We first start off by importing the necessary libraries for our analysis.
 
-[INSERT DESCRIPTION OF EACH LIBRARY]
+The libraries we used are the following:
+
+1. e1071: this package is used to perform statistic and probabilistic algorithms. In our case it is used to perform SVM
+2. MASS: This package includes many useful functions and data examples, including functions for estimating linear models through generalized least squares (GLS)
+3. plyr: contains tools for splitting, applying and combining data
+4. caret: a powrful library that has a train function which allows us to fit over 230 models uncluding tree-based models
+5. ROCR: a flexible tool for creating cutoff-parameterized 2D performance curves by freely combining two from over 25 performance measures
+6. pROC: a package specifically dedicated to ROC analysis
+7. randomForest: performs classification and regression on a forest of trees using random inputs
+8. gbm: short for generalized boosted models, provides extensions to Schapire's AdaBoost algorithm
+9. dplyr: used for data manipulation providing a set of functions that are very useful
+10. tidyverse: contains multiple essensial tools and packages such as ggplot2 for visualization
+11. caTools: used for splitting our dataset into train/test sets
+
 
 ```{r, include=FALSE}
-library(GA)
 library(e1071)
 library(MASS)
 library(dplyr)
-library(vtable)
+#library(vtable)
 library(plyr)
 library(ggplot2)
 library(ggcorrplot)
 library(plotly)
 library(tidyverse)
 #Feature selection libraries
-library(mlbench)
+#library(mlbench)
 library(caret)
 #For Logistic regression
 library(caTools)
 #For ROC curve
 library(ROCR)
+library(pROC)
+#ensemle methods
+library(randomForest)
+library(gbm)
 ```
 
 
@@ -141,6 +157,8 @@ unique(df$Classes)
 df = df %>% drop_na(Classes)
 ```
 
+We then turn the fire/not fire values into 1/0 respectively for future analysis.
+
 ```{r}
 df$Classes <- mapvalues(df$Classes, from=c("not fire","fire"), to=c(0,1))
 ```
@@ -148,15 +166,17 @@ df$Classes <- mapvalues(df$Classes, from=c("not fire","fire"), to=c(0,1))
 ```{r}
 unique(df$Classes)
 df$Classes <- as.numeric(df$Classes)
-st(df)
+str(df)
 ```
+
+We delete the year column since all obserations were performed in the same year
 
 ```{r}
 df <- df[-c(3)]
 
 df_scaled = df
 df_scaled[-c(1,2,13,14)] <- scale(df[-c(1,2,13,14)])
-st(df_scaled)
+str(df_scaled)
 
 ```
 
@@ -222,7 +242,7 @@ importanceLDA <- varImp(modelLDA, scale=FALSE)
 
 plot(importanceLDA)
 ```
-We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model.
+We can see that the variables *month*, *Ws*, *Region*, and *day* are insignificant compared to other features. We will disregard them in our model. To determine this we used a threshold of 0.7 for the *importance* measure.
 
 
 
@@ -242,12 +262,13 @@ For the following models, we will only use the features that were the most signi
 
 ### Splitting the dataset
 
-We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice. This will leave us with 191 observations in the training set as well as 52 in the test set. Due to the small nature of the dataset at hand we will later apply cross validation in order to further examine the performance of our models and compare them with each other.
+We begin by splitting the data into train/test sets with a 80/20 split. This split was chosen by default as a good practice. This will leave us with 191 observations in the training set as well as 52 in the test set. Due to the small nature of the dataset at hand we will later apply cross validation to some models in order to further examine their performance and compare them with each other.
+
+We set a seed of 1000
 
 
 ```{r}
-
-set.seed(6)
+set.seed(1000)
 split <- sample.split(df_scaled, SplitRatio=0.8)
 
 train_set <- subset(df_scaled, split == "TRUE")
@@ -265,7 +286,7 @@ Logistic Regression is considered to be an extension of Linear Regression, in wh
 
 #### Training the model
 
-We first start by fitting our model on the training set. 
+We first start by fitting our model on the training set. As we do that we get an error that our model did not converge, this is due to our model being able to perfectly split the dataset into positive/negative observations. This might soud counterintuitive but this error is a good sign.
 
 ```{r}
 logistic_model <- glm(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, family="binomial")
@@ -273,16 +294,15 @@ logistic_model <- glm(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, dat
 logistic_model
 ```
 
-[Interpretation on the coefficients]
-
 #### Testing the model
 
 Since logistic regression gives us the probability of each observation belonging to the 1 class, we will use a 0.5 threshold to transform that probability into a classification of either 0 or 1.
 
 After getting our predictions, we will use the confusion matrix function from the caret library that computes a set of performance matrices including f1-score, recall and precision. Other matrices computed include: sensitivity, specificity, prevalence etc. The official documentation for this function and the formulas for all matrices are found in this [link.](https://rdrr.io/cran/caret/man/confusionMatrix.html) We will only be interested in the f1-score, recall, precision, accuracy and balanced accuracy.
 
-##### On the train set
+#### On the train set
 
+Our model gives us an accuracy and an f1 score of 100% on the training set.
 
 ```{r}
 preds_logistic <- predict(logistic_model, train_set, type="response")
@@ -296,7 +316,9 @@ confusionMatrix(preds_logistic, train_set$Classes,
 ```
 
 
-##### On the test set
+#### On the test set
+
+On the test set hovewer, we get an accuracy of 98.08% and an f1 score of 98.25%.
 
 ```{r}
 preds_logistic <- predict(logistic_model, test_set, type="response")
@@ -311,7 +333,7 @@ confusionMatrix(preds_logistic, test_set$Classes,
 
 #### Plotting the ROC curve
 
-As we plot the ROC curve, we can see that the AUC is equal to 0.986 which is almost a perfect classifier. Due to the small size of the dataset we have at hand we cannot make any conclusions yet until we try out the different other statistical learning methods.
+As we plot the ROC curve, we can see that the AUC is equal to 98.27586% which is almost a perfect classifier.
 
 ```{r}
 ROCPred <- prediction(as.numeric(preds_logistic), test_set$Classes)
@@ -323,12 +345,6 @@ auc
 plot(ROCPer, colorize = TRUE)
 ```
 
-#### Observations
-
-Our statistics show the following:
-
-1. On the training set: Accuracy is 100%, F1 score is 100%, with one False Negative and no False Positives.
-2. On the testing set: Accuracy is 98%, F1 score is 98.6%, with one False Negative and no False Positives.
 
 ### LDA
 
@@ -349,13 +365,11 @@ lda_model
 ```
 
 
-[Interpretation on the coefficients]
-
 #### Testing the model
 
-##### On the train set
+#### On the train set
 
-On our trainng data, the model reached an accuracy of 94.2% and an F1 score of 94.4%. 
+On our training data, the model reached an accuracy of 95.81% and an f1 score of 96.30%, with 4 false positives and 1 false negative.
 
 ```{r}
 preds_lda = predict(lda_model,train_set, type="response")
@@ -364,9 +378,9 @@ confusionMatrix(preds_lda$class, train_set$Classes,
                 positive="1")
 ```
 
-##### On the test set
+#### On the test set
 
-As we can see below, our the number of false positives is 0, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 98.6% and an accuracy of 98%.
+As we can see below, our the number of false positives is 1, and the number of false negatives is 1 as well. Our model also yielded an accuracy of 96.15% and an f1 score of 96.55%.
 
 ```{r}
 preds_lda = predict(lda_model,test_set, type="response")
@@ -374,9 +388,10 @@ confusionMatrix(preds_lda$class, test_set$Classes,
                 mode = "everything",
                 positive="1")
 ```
+
 #### Potting the ROC curve
 
-The AUC for LDA was also 0.986, similar to the one for Logistic Regression.
+The AUC for LDA was 96.10%, similar to the one for Logistic Regression.
 
 ```{r}
 ROCPred <- prediction(as.numeric(preds_lda$class), test_set$Classes)
@@ -387,7 +402,6 @@ auc
 plot(ROCPer, colorize = TRUE)
 ```
 
-[INTERPRETATION]
 
 ### QDA
 
@@ -411,18 +425,18 @@ qda_model
 
 ##### On the train set
 
-Our model yields an accuracy of 97.9% and an F1 score of 98% on the training set.
+Our model yields an accuracy of 98.95% and an f1 score of 99.07% on the training set.
 
 ```{r}
 preds_qda = predict(qda_model,train_set, type="response")
-confusionMatrix(preds$class, train_set$Classes,
+confusionMatrix(preds_qda$class, train_set$Classes,
                 mode = "everything",
                 positive="1")
 ```
 
 ##### On the test set
 
-As we can see below, our the number of false positives is 1, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 97.3% and an accuracy of 96%.  
+As we can see below, our the number of false positives is 1, and the number of false negatives is 1. The results are very good but the other way around would have been better as we do not want to miss any positives meaning we want to predict all fires. Our model yielded an f1-score of 93.33% and an accuracy of 92.31%.  
 
 ```{r}
 preds_qda = predict(qda_model,test_set, type="response")
@@ -433,7 +447,7 @@ confusionMatrix(preds_qda$class, test_set$Classes,
 
 #### Potting the ROC curve
 
-After plotting the ROC curve we got an AUC of 0.953, which is a bit worse than the one in Logistic Regression and LDA.
+After plotting the ROC curve we got an AUC of 91.75%, which is worse than both logistic regression and LDA.
 
 ```{r}
 
@@ -445,11 +459,13 @@ auc
 plot(ROCPer, colorize = TRUE)
 ```
 
+We can observe that QDA performs better than LDA on the training data, because it has the tendency to over-fit it. However, LDA performs better on the testing data since it generalizes better on unseen data points.
 
 ### KNN Classifier
+
 In this section, we will explore KNN's performance on our problem. We will use hyper parameter tuning to determine the best number of nearest numbers (K) and we will also use repeated cross validation in our training for better performance estimation. 
 
-Since KNN is a distance based model, we will here again use our normalized dataset instead of the original. Once again the scaling technique used was the standard scaling using the function scale(). 
+Since KNN is a distance based model, we will here again use our normalized dataset instead of the original.
 
 #### Training the model
 
@@ -539,7 +555,6 @@ plot(perf,colorize=TRUE)
 ### Ensemble Methods / Tree based methods
 
 #### Simple Decision Trees and tree pruning
-
 The goal of ensemble modeling is to improve performance over a baseline model by combining multiple models. So, we will set the baseline performance measure by starting with one algorithm. In our case, we will build a simple decision tree.
 
 Decision trees are widely used classifiers in industries based on their transparency in describing rules that lead to a prediction. They are arranged in a hierarchical tree-like structure and are simple to understand and interpret. They are not susceptible to outliers and are able to capture nonlinear relationships.
@@ -551,20 +566,63 @@ library(rpart)
 library(rpart.plot)
 ```
 
+##### Splitting the dataset
+Starting with splitting our data into a train and test sets with a train test ratio of 0.8:0.2
 
+```{r}
+set.seed(8)
+split <- sample.split(df_scaled, SplitRatio=0.8)
+
+train_set <- subset(df_scaled, split == "TRUE")
+test_set <- subset(df_scaled, split=="FALSE")
+dim(train_set)
+dim(test_set)
+```
+##### Training the model without the pruning
+Next, we create a decision tree model by calling the rpart function. Let's first create a base model with default parameters and value. Notice that we do not include any train control meaning that we are not using any bagging, cross validation or pruning techniques. The resulting tree is a simple decision tree. We will explore the performance of the model on the train and test sets next.
+```{r}
+base_model <- rpart(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set, method = "class")
+summary(base_model)
+#Plot Decision Tree
+rpart.plot(base_model)
+```
+After exploring the confusion matrix and the different performance metrics, we can see that our base decision tree does not fit the data perfectly and has 3 misclassifications on the training set. Those 3 false positives caused the model's accuracy to be 98% and the f1-score to be 98% as well.
+```{r}
+preds = predict(base_model,train_set, type="class")
+confusionMatrix(preds, train_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+
+###### Testing the unprunned model
+Our base decision tree performs very well on unseen data with just one false positive, an accuracy of 98% and an f1-score of 98%. 
+```{r}
+preds = predict(base_model,test_set, type="class")
+confusionMatrix(preds, test_set$Classes,
+                mode = "everything",
+                positive='1')
+```
+###### ROC curve for unpruned model
+```{r}
+preds <- as.vector(preds, mode = "numeric")
+temp_test_set.classes <- as.vector(test_set$Classes, mode = "numeric")
+
+pred <- prediction(preds, temp_test_set.classes) 
+
+perf <- performance(pred,"tpr","fpr")
+plot(perf,colorize=TRUE)
+```
 ##### Training the model with Pruning
-Next, we create a decision tree model by calling the rpart function. Let's first create a base model with default parameters and value. 
-
 Prepruning is also known as early stopping criteria. As the name suggests, the criteria are set as parameter values while building the rpart model. Below are some of the pre-pruning criteria that can be used. The tree stops growing when it meets any of these pre-pruning criteria, or it discovers the pure classes.
 
-The complexity parameter (cp) in rpart is the minimum improvement in the model needed at each node. It’s based on the cost complexity of the model and works as follows: 
+The complexity parameter (cp) in rpart is the minimum improvement in the model needed at each node. Itís based on the cost complexity of the model and works as follows: 
 
 - For the given tree, add up the misclassification at every terminal node.
 - Then multiply the number of splits time a penalty term (lambda) and add it to the total misclassification.
 - The lambda is determined through cross-validation and not reported in R.
 - The cp we see using printcp() is the scaled version of lambda over the misclassifcation rate of the overall data.
 
-The cp value is a stopping parameter. It helps speed up the search for splits because it can identify splits that don’t meet this criteria and prune them before going too far.
+The cp value is a stopping parameter. It helps speed up the search for splits because it can identify splits that donít meet this criteria and prune them before going too far.
 
 Other parameters include but are not limited to: 
 
@@ -575,39 +633,35 @@ Other parameters include but are not limited to:
 And one last thing, since we are in a classification setting, we have to specify class as the method used for building our tree instead of 'anova' that is used in regression settings. 
 
 ```{r}
-base_model <- rpart(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set, method = "class",  control = rpart.control(cp = 0, maxdepth = 8, minsplit = 8))
-summary(base_model)
+pruned_base_model <- rpart(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data = train_set, method = "class",  control = rpart.control(cp = 0, maxdepth = 8, minsplit = 8))
+summary(pruned_base_model)
 #Plot Decision Tree
-rpart.plot(base_model)
+rpart.plot(pruned_base_model)
 ```
-
-The summary of our base model will give us the details of each split with the number of observations, the value of the complexity parameter, the predicted class, the class counts with their probabilites and the children of the node. It will also give details about the future splits starting with the primary splits that will follow and the percent improvement in the prediction as well as the surrogate splits that come later on. 
+The summary of our base model will give us the details of each split with the number of observations, the value of the complexity parameter, the predicted class, the class counts with their probabilities and the children of the node. It will also give details about the future splits starting with the primary splits that will follow and the percent improvement in the prediction as well as the surrogate splits that come later on. 
 
 The resulting tree as explained in the above section, is the smallest tree with the lowest miss-classification loss. This tree is plotted with the split details and leaf node classes. 
 
 The optimal CP value found was 0.96341463.
 
 ```{r}
-preds = predict(base_model,train_set, type="class")
+preds = predict(pruned_base_model,train_set, type="class")
 confusionMatrix(preds, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
 The train accuracy of our tree is 99% with an F1 score of 99% as well with a total of 2 misclassifications, 1 FP and 1 FN.  
 
-##### Testing the model
-
+###### Testing the pruned model
 We have a 100% accuracy on our held-out validation set which means we have successfully avoided overfitting using tree pruning. 
 
 ```{r}
-preds = predict(base_model,test_set, type="class")
+preds = predict(pruned_base_model,test_set, type="class")
 confusionMatrix(preds, test_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
-
-##### ROC curve
-
+###### ROC curve for pruned model
 ```{r}
 preds <- as.vector(preds, mode = "numeric")
 test_set$Classes <- as.vector(test_set$Classes, mode = "numeric")
@@ -618,12 +672,26 @@ perf <- performance(pred,"tpr","fpr")
 plot(perf,colorize=TRUE)
 ```
 
-#### BAGGING
 
+
+#### BAGGING
 Bagging, or bootstrap aggregation, is an ensemble method that involves training the same algorithm many times by using different subsets sampled from the training data. The final output prediction is then averaged across the predictions of all the sub-models. The two most popular bagging ensemble techniques are Bagged Decision Trees and Random Forest.
 
-##### Bagged Decision Trees
+Splitting the dataset
 
+Starting with splitting our data into a train and test sets with a train test ratio of 0.8:0.2
+
+```{r}
+set.seed(8)
+split <- sample.split(df_scaled, SplitRatio=0.8)
+
+train_set <- subset(df_scaled, split == "TRUE")
+test_set <- subset(df_scaled, split=="FALSE")
+dim(train_set)
+dim(test_set)
+```
+
+##### Bagged Decision Trees
 This method performs best with algorithms that have high variance. The argument method="treebag" specifies the algorithm. We will train our model using a 5-fold cross validation repeated 5 times. The sampling strategy used for the bagged trees is ROSE.
 
 ###### Training the model
@@ -632,7 +700,9 @@ control <- trainControl(method="repeatedcv", number=5, repeats=5)
 
 bagCART_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="treebag", metric="Accuracy", trControl=control)
 ```
+
 ###### Training accuracy
+We achieved a perfect fit using bagged trees trained using a 5-fold CV repeated 5 times.
 ```{r}
 preds = predict(bagCART_model,train_set, type="raw")
 confusionMatrix(preds, train_set$Classes,
@@ -640,6 +710,7 @@ confusionMatrix(preds, train_set$Classes,
                 positive='1')
 ```
 ###### Testing accuracy
+The bagged model did not achieve a perfect performance on unseen data which leads us to believe it over fit the data. This can be caused by the fact that the bagged trees were highly correlated between each other which could be due to the absence of randomization in the features used for each bagged tree. What happenned most probably is the use of the same strong predictors in all bagged trees causing this high correlation between them. In order to get rid of it we will implement Random Forests next which adds this randomization in the features selected for each bagged tree. 
 ```{r}
 preds = predict(bagCART_model,test_set, type="raw")
 confusionMatrix(preds, test_set$Classes,
@@ -656,6 +727,7 @@ control <- trainControl(method="repeatedcv", number=5, repeats=5)
 rf_model <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="rf", metric="Accuracy", trControl=control)
 ```
 ###### Training accuracy
+Once again, our randomForest model achieved a perfect fir with a 5-fold CV repeated 5 times. 
 ```{r}
 preds = predict(rf_model,train_set, type="raw")
 confusionMatrix(preds, train_set$Classes,
@@ -663,6 +735,7 @@ confusionMatrix(preds, train_set$Classes,
                 positive='1')
 ```
 ###### Testing accuracy
+We have a slight improvement over the bagged model as now we have only one misclassification with a 985 accuracy. This proves that adding randomization to the features selected for each tree decorrelated them yielding more generalizaiton and better performance on unseen data.
 ```{r}
 preds = predict(rf_model,test_set, type="raw")
 confusionMatrix(preds, test_set$Classes,
@@ -675,25 +748,35 @@ In boosting, multiple models are trained sequentially and each model learns from
 
 ##### Stochastic Gradient Boosting
 ###### Training the model
+An important thing to note is that sochastic gradient boosting takes a much longer time to train as it is a step-wise method which takes a lot of iterations to converge. Adding cross-validation makes it even longer. 
 ```{r, results="hide"}
-control <- trainControl(method="repeatedcv", number=5)
+control <- trainControl(method="cv", number=5)
 
 SGB <- train(Classes ~ Temperature+Rain+FFMC+DMC+DC+ISI+BUI+FWI+RH, data=train_set, method="gbm", metric="Accuracy", trControl=control)
 ```
 ###### Training accuracy
+99.48% accuracy on training data with 1 false positive. No noticeable improvement over random forests.
 ```{r}
 preds = predict(SGB,train_set, type="raw")
 confusionMatrix(preds, train_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
+
 ###### Testing accuracy
+98.08% accuracy on unseen data, same as the training set, boosting did not bring much over our random forest model and considering the very high training time, it is unnecessary to use this method on our problem.
 ```{r}
 preds = predict(SGB,test_set, type="raw")
 confusionMatrix(preds, test_set$Classes,
                 mode = "everything",
                 positive='1')
 ```
+
+#### Final notes on Ensemble methods
+- We can see that just pruning a simple decision tree yielded the best performance on unseen data, but we would like to point out that our dataset is quite small in size, therefore ensemble methods like bagging, randomForests or boosting will not perform very well as they need considerable amounts of data in order to build multiple trees and apply their algorithms proparly. 
+- That is why for our specific problem there is no need to go to these advanced tree-based methods. 
+- Another note is that the results are very dependant on the training set, meaning that small fluctuations in train and test accuracies will happen if we change the randomSeed used in the train-test split for instance. 
+
 ### SVM
 
 Support Vector Machine is a discriminative classifier that classifies obserations using a hyperplane that best differentiates between the classes. Its advantages lay in the fact that they are very flexible and work well on high-dimensional data.
@@ -765,8 +848,9 @@ ROCPred <- prediction(as.numeric(preds_svm_test), as.numeric(test_set$Classes))
 ROCPer <- performance(ROCPred, measure="tpr",x.measure="fpr")
 auc <- performance(ROCPred, measure = "auc")
 auc <- auc@y.values[[1]]
-auc
+auc 
 plot(ROCPer, colorize = TRUE)
+
 ```
 
 We get an AUC value of 0.953 using the SVM classifier.
