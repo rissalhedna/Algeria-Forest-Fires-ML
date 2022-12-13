@@ -1,7 +1,7 @@
 # Algeria Forest Fires
 This project is a part of the data mining course at the Lebanese American Unviersity under the supervision of Dr.Joseph Rebehmed.
 
-#### -- Project Status: [Completed]
+#### Project Status: [Completed]
 
 ## Background
 During the summer of 2012, Algeria experienced a series of devastating wild fires that affected much of the northern part of the country, particularly the coastal cities. These fires were likely caused by higher than average temperatures, which reached as high as 50 degrees Celsius. In order to prevent the reproduction of such disasters, it is important to be able to predict their occurrence.
